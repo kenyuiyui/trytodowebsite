@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>營銷號自動生產車間</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #121212; color: #fff; text-align: center; padding: 50px; }
+        .container { max-width: 500px; margin: auto; background: #1e1e1e; padding: 30px; border-radius: 10px; box-shadow: 0 0 15px rgba(0,255,255,0.2); }
+        input[type="text"] { width: 90%; padding: 10px; margin: 20px 0; border-radius: 5px; border: none; font-size: 16px; }
+        input[type="text"]:disabled { opacity: 0.5; cursor: not-allowed; }
+        button { background: #00f0ff; color: #000; padding: 12px 25px; border: none; font-weight: bold; border-radius: 5px; cursor: pointer; font-size: 16px; transition: 0.3s; }
+        button:hover:not(:disabled) { background: #ff007f; color: #fff; }
+        /* [H2] 防呆：鎖定中的按鈕樣式，明確告知使用者目前無法再按 */
+        button:disabled { background: #444; color: #888; cursor: not-allowed; }
+        #status { margin-top: 20px; font-size: 14px; color: #aaa; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>🏭 Shorts 自動生產車間</h2>
+        <p>輸入你想製作的短影音主題：</p>
+        <input type="text" id="topicInput" placeholder="例如：深夜無人街頭的詭異傳說...">
+        <br>
+        <button id="submitBtn" onclick="sendTask()">開始自動生產</button>
+        <div id="status">等待輸入指令...</div>
+    </div>
+    <script>
+        // ⚠️ 替換成你部署 GAS 拿到的「網頁應用程式網址」
+        const GAS_URL = "YOUR_GAS_WEB_APP_URL";
+
+        // [H2] 防呆：用旗標鎖定，避免任務還在處理中時被連點觸發多筆重複訂單
+        let isSubmitting = false;
+
+        async function sendTask() {
+            // 已經在送出中，直接擋掉，不重複執行
+            if (isSubmitting) return;
+
+            const topicInput = document.getElementById('topicInput');
+            const submitBtn  = document.getElementById('status') && document.getElementById('submitBtn');
+            const statusDiv  = document.getElementById('status');
+            const topic = topicInput.value.trim();
+
+            if (!topic) {
+                alert("請先輸入主題！");
+                return;
+            }
+
+            // --- 進入送出狀態：鎖定按鈕與輸入框 ---
+            isSubmitting = true;
+            submitBtn.disabled = true;
+            topicInput.disabled = true;
+            statusDiv.innerHTML = "⏳ 正在通知 GAS 尋找素材與生成腳本，請稍候...";
+
+            try {
+                // [H1 修正] Content-Type 改為 text/plain，避免觸發 CORS 預檢（preflight）。
+                // GAS 端的 JSON.parse(e.postData.contents) 完全不受影響，
+                // 因為它解析的是「內容本身」，不是宣告的 Content-Type。
+                const response = await fetch(GAS_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'text/plain;charset=utf-8',
+                    },
+                    body: JSON.stringify({ topic: topic }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`伺服器回應異常（狀態碼：${response.status}）`);
+                }
+
+                const result = await response.json();
+
+                if (result.status === "success") {
+                    statusDiv.innerHTML = `🎉 成功！訂單已建立（時間戳：${result.timestamp}）<br>✨ 請開啟 Colab 執行後端生產線。`;
+                    topicInput.value = ""; // 清空輸入框，避免使用者忘記改主題又重送一次
+                } else {
+                    statusDiv.innerHTML = `❌ 錯誤：${result.message}`;
+                }
+
+            } catch (error) {
+                // [H1] 若部署設定錯誤（例如存取權限沒設成「任何人」），
+                // 這裡也會被攔截到，訊息中順便提示常見排查方向
+                statusDiv.innerHTML = `❌ 網路錯誤或 GAS 尚未正確部署。<br>
+                    <small style="color:#888">
+                    請確認：1) GAS 已部署且網址正確　
+                    2) 部署時「具有存取權限的使用者」設為「任何人」　
+                    3) 瀏覽器開發者工具 Console 查看詳細錯誤
+                    </small>`;
+                console.error("sendTask 錯誤：", error);
+
+            } finally {
+                // --- 無論成功或失敗，都要解除鎖定，不然使用者會卡死按不了 ---
+                isSubmitting = false;
+                submitBtn.disabled = false;
+                topicInput.disabled = false;
+            }
+        }
+
+        // [H2] 防呆加碼：讓使用者按 Enter 也能送出，但同樣受 isSubmitting 鎖定保護
+        document.getElementById('topicInput').addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') sendTask();
+        });
+    </script>
+</body>
+</html>
